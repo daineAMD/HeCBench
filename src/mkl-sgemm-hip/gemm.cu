@@ -11,6 +11,26 @@
 #include <hip/hip_runtime.h>
 #include <hip/hip_fp16.h>
 #include <hipblas/hipblas.h>
+#include <x86intrin.h>
+
+inline float half_to_float(hipblasHalf val)
+{
+#ifdef HIPBLAS_USE_HIP_HALF
+    return __half2float(val);
+#else
+    return _cvtsh_ss(val);
+#endif
+}
+
+inline hipblasHalf float_to_half(float val)
+{
+#ifdef HIPBLAS_USE_HIP_HALF
+    return __float2half(val);
+#else
+    uint16_t a = _cvtss_sh(val, 0);
+    return a;
+#endif
+}
 
 template <typename T>
 void print_2x2_matrix_values(T M, int ldM, std::string M_name)
@@ -22,6 +42,16 @@ void print_2x2_matrix_values(T M, int ldM, std::string M_name)
   std::cout << std::endl;
 }
 
+template <>
+void print_2x2_matrix_values(hipblasHalf* M, int ldM, std::string M_name)
+{
+    std::cout << std::endl;
+    std::cout << "\t\t\t" << M_name << " = [ " << half_to_float(M[0*ldM + 0]) << ", " << half_to_float(M[1*ldM + 0])         << ", ...\n";
+    std::cout << "\t\t\t    [ "                << half_to_float(M[0*ldM + 1]) << ", " << half_to_float(M[1*ldM + 1]) << ", ...\n";
+    std::cout << "\t\t\t    [ "                << "...\n";
+    std::cout << std::endl;
+}
+
 //
 // helpers for initializing templated scalar data type values.
 //
@@ -30,6 +60,14 @@ template <typename fp> void rand_matrix(fp *M, int n_row, int n_col)
   for (int i = 0; i < n_row; i++)
     for (int j = 0; j < n_col; j++)
       M[i * n_col + j] = rand() % 2;
+}
+
+template <>
+void rand_matrix(hipblasHalf* M, int n_row, int n_col)
+{
+    for(int i = 0; i < n_row; i++)
+        for(int j = 0; j < n_col; j++)
+            M[i * n_col + j] = float_to_half(rand() % 2);
 }
 
 //
@@ -51,8 +89,8 @@ void run_gemm_example(int m, int k, int n, int repeat) {
   //
 
   // set scalar fp values
-  const fp alpha = fp(2.0);
-  const fp beta  = fp(0.5);
+  const fp alpha = std::is_same_v<fp, hipblasHalf> ? fp(float_to_half(2.0)) : fp(2.0);
+  const fp beta  = std::is_same_v<fp, hipblasHalf> ? fp(float_to_half(0.5)) : fp(0.5);
 
   const size_t A_size = sizeof(fp) * m * k;
   const size_t B_size = sizeof(fp) * k * n;
@@ -144,3 +182,4 @@ int main (int argc, char ** argv) {
 
   return 0;
 }
+
